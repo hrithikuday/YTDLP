@@ -5,7 +5,6 @@ ytdlpgui.spec
 cookie.txt
 .vscode/
 download_history.json
-*.txt
 cookies/
 download_history.json
 download_history.json
