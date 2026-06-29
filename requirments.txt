@@ -1,3 +1,4 @@
 customtkinter
 flask
 gunicorn
+yt-dlp
