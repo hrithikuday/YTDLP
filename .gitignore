@@ -1,0 +1,12 @@
+dist/
+build/
+ytdlpgui.spec
+.DS_Store
+cookie.txt
+.vscode/
+download_history.json
+*.txt
+cookies/
+download_history.json
+download_history.json
+download_history.json
