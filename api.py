@@ -451,6 +451,45 @@ def stop_task(task_id):
         t["status"] = "stopped"
         return jsonify({"message": "Task stopped successfully"})
 
+@app.route('/api/files', methods=['GET'])
+def list_downloaded_files():
+    try:
+        files = []
+        if os.path.exists(DOWNLOAD_PATH):
+            for filename in os.listdir(DOWNLOAD_PATH):
+                file_path = os.path.join(DOWNLOAD_PATH, filename)
+                if os.path.isfile(file_path):
+                    stat = os.stat(file_path)
+                    files.append({
+                        "filename": filename,
+                        "size": stat.st_size,
+                        "timestamp": datetime.fromtimestamp(stat.st_mtime).isoformat()
+                    })
+        files.sort(key=lambda x: x['timestamp'], reverse=True)
+        return jsonify(files)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+from flask import send_from_directory
+
+@app.route('/api/files/<path:filename>', methods=['GET'])
+def download_file(filename):
+    try:
+        return send_from_directory(DOWNLOAD_PATH, filename, as_attachment=True)
+    except Exception as e:
+        return jsonify({"error": "File not found"}), 404
+
+@app.route('/api/files/<path:filename>', methods=['DELETE'])
+def delete_file(filename):
+    try:
+        file_path = os.path.join(DOWNLOAD_PATH, filename)
+        if os.path.exists(file_path) and os.path.isfile(file_path):
+            os.remove(file_path)
+            return jsonify({"message": f"File {filename} deleted successfully"})
+        return jsonify({"error": "File not found"}), 404
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 @app.route('/api/history', methods=['GET'])
 def get_history():
     try:
@@ -758,6 +797,30 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                     <div id="active-tasks-list" class="space-y-4">
                         <!-- populated by JS -->
                         <p class="text-sm text-slate-500 text-center py-6">No downloads in progress</p>
+                    </div>
+                </div>
+
+                <!-- Downloaded Files -->
+                <div class="glass rounded-2xl p-6 shadow-xl">
+                    <div class="flex items-center justify-between mb-4">
+                        <h2 class="text-lg font-semibold flex items-center gap-2">
+                            <svg class="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path>
+                            </svg>
+                            <span>Downloaded Files</span>
+                        </h2>
+                        <button onclick="loadFiles()" class="text-xs text-slate-400 hover:text-emerald-400 flex items-center gap-1">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 1121.27 15H18"></path>
+                            </svg>
+                            Refresh
+                        </button>
+                    </div>
+                    <div class="overflow-y-auto max-h-60 custom-scroll">
+                        <div id="files-list" class="space-y-3">
+                            <!-- populated by JS -->
+                            <p class="text-xs text-slate-500 text-center py-6">No files downloaded yet</p>
+                        </div>
                     </div>
                 </div>
 
@@ -1168,9 +1231,63 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             }
         }
 
+        async function loadFiles() {
+            try {
+                const response = await fetch('/api/files');
+                const files = await response.json();
+                const container = document.getElementById('files-list');
+                
+                if (files.length === 0) {
+                    container.innerHTML = '<p class="text-xs text-slate-500 text-center py-6">No files downloaded yet</p>';
+                    return;
+                }
+                
+                container.innerHTML = '';
+                files.forEach(f => {
+                    const sizeMB = (f.size / (1024 * 1024)).toFixed(2);
+                    container.innerHTML += `
+                        <div class="flex items-center justify-between bg-slate-900/60 border border-slate-800/80 p-3 rounded-xl hover:bg-slate-800/40 transition-colors">
+                            <div class="flex-grow min-w-0 pr-4">
+                                <h4 class="text-xs font-semibold text-slate-200 truncate" title="${f.filename}">${f.filename}</h4>
+                                <span class="text-[10px] text-slate-500 font-mono">${sizeMB} MB</span>
+                            </div>
+                            <div class="flex items-center gap-2 shrink-0">
+                                <a href="/api/files/${encodeURIComponent(f.filename)}" class="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-lg text-[10px] transition-colors flex items-center gap-1">
+                                    <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
+                                    </svg>
+                                    Save
+                                </a>
+                                <button onclick="deleteFile('${f.filename}')" class="px-2 py-1 border border-slate-700 hover:border-red-400 hover:text-red-400 text-slate-400 rounded-lg text-[10px] transition-colors">
+                                    Delete
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                });
+            } catch (err) {
+                console.error("Error loading files", err);
+            }
+        }
+
+        async function deleteFile(filename) {
+            if (!confirm(`Are you sure you want to delete ${filename} from the server?`)) return;
+            try {
+                const response = await fetch(`/api/files/${encodeURIComponent(filename)}`, { method: 'DELETE' });
+                if (response.ok) {
+                    loadFiles();
+                } else {
+                    alert("Failed to delete file");
+                }
+            } catch (err) {
+                alert("Error connecting to server");
+            }
+        }
+
         // Periodically refresh active downloads and logs
         setInterval(loadTasks, 1500);
         setInterval(loadHistory, 8000);
+        setInterval(loadFiles, 8000);
 
         // Show/hide quality selector based on format selection
         document.querySelectorAll('input[name="format"]').forEach(radio => {
@@ -1188,6 +1305,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         loadCookies();
         loadHistory();
         loadTasks();
+        loadFiles();
     </script>
 </body>
 </html>
